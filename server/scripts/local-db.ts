@@ -14,8 +14,17 @@ const databaseDir = path.join(serverRoot, '.pgdata');
 
 const pg = new EmbeddedPostgres({ databaseDir, user: 'betlink', password, port, persistent: true, onLog: () => {} });
 
-if (!fs.existsSync(path.join(databaseDir, 'PG_VERSION'))) await pg.initialise();
-await pg.start();
+try {
+  if (!fs.existsSync(path.join(databaseDir, 'PG_VERSION'))) await pg.initialise();
+  await pg.start();
+} catch (err) {
+  console.error(
+    `Could not start PostgreSQL on port ${port}. Is it already running (e.g. an earlier \`npm run db:local\` window)?\n` +
+      'Close that instance, or set LOCAL_DB_PORT to a free port and update DATABASE_URL to match.',
+    err ?? '',
+  );
+  process.exit(1);
+}
 try {
   await pg.createDatabase('betlink');
 } catch {

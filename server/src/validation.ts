@@ -36,7 +36,11 @@ const email = z.string().trim().toLowerCase().email('Enter a valid email address
 
 export const registerSchema = z.object({
   email,
-  password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  // bcrypt ignores everything after 72 bytes, so longer passwords would silently be truncated
+  password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .refine((p) => Buffer.byteLength(p, 'utf8') <= 72, 'Password must be at most 72 bytes (about 72 characters)'),
   full_name: trimmed(2, 100),
   phone: optionalPhone,
   role: z.enum(['user', 'owner', 'agent']).default('user'),

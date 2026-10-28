@@ -1,7 +1,11 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import bcrypt from 'bcryptjs';
+import sharp from 'sharp';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
+import { config } from '../src/config.js';
 import { pool } from '../src/db.js';
 import { runMigrations } from '../src/migrate.js';
 
@@ -407,5 +411,67 @@ describe('reports and administration', () => {
     const { rows } = await pool.query(`SELECT id FROM users WHERE email = 'spammer@example.com'`);
     await admin.patch(`/api/admin/users/${rows[0].id}`).set(H).send({ is_suspended: true }).expect(200);
     expect((await victim.get('/api/auth/me')).body.user).toBeNull();
+  });
+});
+
+describe('security hardening regressions', () => {
+  it('does not trust X-Forwarded-For unless TRUST_PROXY is configured', () => {
+    expect(app.get('trust proxy')).toBe(false);
+  });
+
+  it('rejects passwords longer than bcrypt can use (72 bytes)', async () => {
+    const res = await request(app)
+      .post('/api/auth/register')
+      .set(H)
+      .send({ email: 'long@example.com', password: 'é'.repeat(40), full_name: 'Long Password' });
+    expect(res.status).toBe(400);
+    expect(res.body.fields.password).toMatch(/72 bytes/);
+  });
+
+  it('purges expired sessions when a new session is created', async () => {
+    const { rows } = await pool.query(`SELECT id FROM users WHERE email = 'renter@example.com'`);
+    await pool.query(`INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ('stale', $1, now() - interval '1 day')`, [rows[0].id]);
+    await request(app).post('/api/auth/login').set(H).send({ email: 'renter@example.com', password: 'correct horse battery' }).expect(200);
+    expect((await pool.query(`SELECT 1 FROM sessions WHERE token_hash = 'stale'`)).rowCount).toBe(0);
+  });
+
+  it('prevents administrators from being suspended', async () => {
+    const { rows } = await pool.query(`SELECT id FROM users WHERE email = 'admin@example.com'`);
+    await admin.patch(`/api/admin/users/${rows[0].id}`).set(H).send({ is_suspended: true }).expect(400);
+  });
+
+  describe('uploaded images are re-encoded', () => {
+    let id: string;
+    const storedFile = (url: string) => fs.readFile(path.join(config.uploadDir, path.basename(url)));
+    beforeAll(async () => {
+      const created = await owner.post('/api/properties').set(H).send(listing({ title: 'Listing for upload sanitisation' }));
+      id = created.body.property.id;
+    });
+
+    it('strips EXIF metadata including GPS coordinates', async () => {
+      const jpeg = await sharp({ create: { width: 64, height: 48, channels: 3, background: '#a8462a' } })
+        .withExif({ IFD0: { Make: 'PhoneCo', Model: 'Secret Phone' }, IFD3: { GPSLatitudeRef: 'N', GPSLatitude: '9/1 1/1 0/1', GPSLongitudeRef: 'E', GPSLongitude: '38/1 45/1 0/1' } })
+        .jpeg()
+        .toBuffer();
+      expect((await sharp(jpeg).metadata()).exif).toBeDefined(); // sanity: the input really carries EXIF
+      const up = await owner.post(`/api/properties/${id}/images`).set(H).attach('images', jpeg, 'gps.jpg').expect(201);
+      const stored = await storedFile(up.body.images[0].url);
+      const meta = await sharp(stored).metadata();
+      expect(meta.exif).toBeUndefined();
+      expect(meta.format).toBe('jpeg');
+      expect(stored.includes(Buffer.from('Secret Phone'))).toBe(false);
+    });
+
+    it('drops bytes appended after the image (polyglot payloads)', async () => {
+      const polyglot = Buffer.concat([PNG, Buffer.from('<script>alert(document.cookie)</script>')]);
+      const up = await owner.post(`/api/properties/${id}/images`).set(H).attach('images', polyglot, 'poly.png').expect(201);
+      expect((await storedFile(up.body.images[0].url)).includes(Buffer.from('<script>'))).toBe(false);
+    });
+
+    it('rejects files with a valid signature that do not decode as images', async () => {
+      const fake = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('not really a jpeg at all')]);
+      const res = await owner.post(`/api/properties/${id}/images`).set(H).attach('images', fake, 'fake.jpg');
+      expect(res.status).toBe(400);
+    });
   });
 });

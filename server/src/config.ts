@@ -16,7 +16,9 @@ export const config = {
   isTest: env.NODE_ENV === 'test',
   port: Number(env.PORT ?? 4000),
   databaseUrl: env.DATABASE_URL ?? '',
-  clientOrigin: env.CLIENT_ORIGIN ?? 'http://localhost:5173',
+  // Only trust X-Forwarded-For when actually behind a reverse proxy (number of proxy hops), otherwise
+  // clients could spoof their IP and evade rate limits. Unset = trust nothing.
+  trustProxy: /^\d+$/.test(env.TRUST_PROXY ?? '') ? Number(env.TRUST_PROXY) : false,
   sessionDays: Number(env.SESSION_DAYS ?? 14),
   uploadDir: env.UPLOAD_DIR || path.join(serverRoot, 'uploads'),
   migrationsDir: path.join(serverRoot, 'migrations'),

@@ -32,6 +32,8 @@ export const USER_COLUMNS = 'u.id, u.email, u.full_name, u.phone, u.role, u.veri
 export async function createSession(res: Response, userId: string) {
   const token = crypto.randomBytes(32).toString('base64url');
   const expires = new Date(Date.now() + config.sessionDays * 86_400_000);
+  // Opportunistic cleanup so expired session rows do not accumulate
+  await query('DELETE FROM sessions WHERE expires_at < now()');
   await query('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ($1, $2, $3)', [
     hashToken(token),
     userId,

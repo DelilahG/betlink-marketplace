@@ -98,29 +98,34 @@ npm run typecheck
 npm run build
 ```
 
-- **Server (49 tests):** these run against a throwaway **real PostgreSQL** that the tests start automatically. They cover registration and login validation, phone normalisation, the CSRF header, profile-based privilege escalation, role checks, listing CRUD and the draft → publish → rented flow, cross-user access (403), upload rejection (spoofed type, more than 5 MB, path-traversal filename), search and filters, sorting and pagination, LIKE wildcard escaping, favourites, the inquiry workflow and honeypot, reporting with auto-flagging, admin moderation, verification and suspension.
-- **Client (7 tests):** ETB and phone formatting, listing form validation, and PropertyCard rendering (labels, the verified badge only when verified, the favourite toggle).
+- **Server (56 tests):** these run against a throwaway **real PostgreSQL** that the tests start automatically. They cover registration and login validation, phone normalisation, the CSRF header, profile-based privilege escalation, role checks, listing CRUD and the draft → publish → rented flow, cross-user access (403), upload rejection (spoofed type, more than 5 MB, path-traversal filename), search and filters, sorting and pagination, LIKE wildcard escaping, favourites, the inquiry workflow and honeypot, reporting with auto-flagging, admin moderation, verification and suspension, plus security regressions: EXIF/GPS stripping, polyglot payload removal, undecodable-image rejection, the 72-byte password limit, expired-session cleanup, the proxy-trust default, and admins being non-suspendable.
+- **Client (21 tests):** ETB and phone formatting, listing form validation, PropertyCard rendering (labels, the verified badge only when verified, the favourite toggle), the post-login redirect allow-list (open-redirect cases), and a Layout regression test.
+
+Passing tests show that these specific behaviours work. They are not a full security audit, and this project has not been independently audited or penetration-tested.
 
 ## Security
 
-- Passwords are hashed with bcrypt (cost 12). Login uses a dummy hash for unknown emails so response timing does not reveal which accounts exist.
-- Sessions use random 256-bit tokens in `HttpOnly`, `SameSite=Lax` cookies (also `Secure` in production). The database stores only the SHA-256 of each token. Logout and suspension delete sessions.
+- Passwords are hashed with bcrypt (cost 12) and limited to 72 bytes, because bcrypt silently ignores anything longer. Login uses a dummy hash for unknown emails so response timing does not reveal which accounts exist.
+- Sessions use random 256-bit tokens in `HttpOnly`, `SameSite=Lax` cookies (also `Secure` in production). The database stores only the SHA-256 of each token. Sessions expire after `SESSION_DAYS` (default 14). Logout and suspension delete sessions, and expired rows are purged whenever a new session is created. There is no password change or reset yet, so a user cannot rotate a compromised password themselves.
 - **CSRF:** every non-GET API request must send `X-Requested-With: BetLink`. Cross-site pages cannot send that header without a CORS preflight, and the server never grants one.
 - **Authorization runs on the server for every action:** role guards, ownership checks on every listing mutation, inquiry updates scoped to the listing owner, and admin routes behind `requireRole('admin')`. Hiding buttons in the UI is for convenience only.
 - All input goes through Zod, and all SQL is parameterised. Helmet sets security headers and a CSP. JSON bodies are limited to 100 KB.
-- Rate limits apply to login/registration, inquiries, reports and uploads. Inquiries also have a honeypot field. Each user can report a listing once, and three reports flag it automatically.
-- **Uploads:** only owners can upload. Files are held in memory, limited to 8 per request, 5 MB each and 12 per listing. The type is checked from the file's **magic bytes** (JPEG, PNG or WebP), not from the client-supplied MIME type or filename. Files are stored under random hex names outside the source tree and served with `nosniff` and `default-src 'none'`. Stored keys are validated with a regex before any delete.
+- Rate limits apply to login/registration, inquiries, reports and uploads. They are keyed by client IP. `X-Forwarded-For` is ignored unless `TRUST_PROXY` is set to the number of reverse proxies in front of the app, so clients cannot spoof their IP to dodge limits. Inquiries also have a honeypot field. Each user can report a listing once, and three reports flag it automatically.
+- **Uploads:** only owners can upload. Files are held in memory, limited to 8 per request, 5 MB each and 12 per listing. The type is checked from the file's **magic bytes** (JPEG, PNG or WebP), not from the client-supplied MIME type or filename. Files are stored under random hex names outside the source tree and served with `nosniff` and `default-src 'none'`. Every image is decoded and re-encoded with `sharp`. This applies the EXIF orientation, then **removes all metadata including GPS location**, discards bytes appended to the image (polyglot payloads), caps resolution at 2560 px, and rejects files that do not decode or that exceed 40 megapixels (decompression bombs). Stored keys are validated with a regex before any delete.
 - **Admin creation:** `create-admin` is a CLI script that refuses to run when `NODE_ENV=production`. It reads the password from an environment variable. There is no hardcoded password and no web backdoor. The seed script also refuses to run in production.
-- `.env`, `server/.pgdata` and uploads are git-ignored. `.env.example` contains placeholders only.
+- `.env`, `server/.pgdata` and uploads are git-ignored. `.env.example` contains placeholders only. The app needs no API keys or signing secrets: session tokens are random values stored hashed in PostgreSQL. The server refuses to start without `DATABASE_URL`.
+- **Production settings matter:** `Secure` cookies and the strict CSP upgrade only apply when `NODE_ENV=production`, so a deployment must set it and must serve over HTTPS.
+- **Development-only credentials:** the demo accounts use whatever `SEED_PASSWORD` you choose locally, and their emails use the reserved `.test` domain. The embedded dev database defaults to a local-only password (`betlink_local_dev`, overridable with `LOCAL_DB_PASSWORD`) and listens on localhost. None of these should be used on a deployed instance.
 
 ## Known limitations
 
-- **Image storage is local disk** (`server/uploads`). In production, use object storage such as S3 or R2 and a CDN, scan uploads for malware, and strip EXIF data (which can contain GPS location). Images are not resized.
+- **Image storage is local disk** (`server/uploads`). In production, use object storage such as S3 or R2 and a CDN, and consider malware scanning. Photos of draft or removed listings remain reachable by anyone who already knows their random URL.
 - **No email delivery:** listers see inquiries in the dashboard and reply by email or phone themselves. Password reset is not implemented.
 - **Verification is a manual admin flag.** A real deployment would need ID or licence document checks and an audit trail.
 - **View counts are approximate** (they count every non-owner page load, without deduplication).
 - **Search uses `ILIKE`.** For large datasets, add `pg_trgm` or full-text indexes, plus map-based search with coordinates.
 - **The interface is English only for now.** Strings are centralised in `client/src/i18n.ts` so Amharic can be added, but not every string has moved there yet.
 - **Demo photos** are hotlinked from `images.unsplash.com` under the [Unsplash License](https://unsplash.com/license). They are generic interiors and exteriors, not Ethiopian properties, and individual photographer credits were not recorded.
+- Login has per-IP rate limiting but no per-account lockout. Registration reveals whether an email is already registered (a 409 response).
 - Rate-limit counters are kept in memory (one process). Use a Redis store if you scale out.
 - No end-to-end browser test suite. Tests cover the API (integration) and React components (unit).

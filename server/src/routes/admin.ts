@@ -141,7 +141,10 @@ adminRouter.patch(
       })
       .parse(req.body);
     const id = uuidParam(req.params.id);
-    if (id === req.user!.id && input.is_suspended) throw new HttpError(400, 'You cannot suspend your own account');
+    if (input.is_suspended) {
+      const target = await query('SELECT role FROM users WHERE id = $1', [id]);
+      if (target.rows[0]?.role === 'admin') throw new HttpError(400, 'Administrator accounts cannot be suspended here');
+    }
     const { rows } = await query(
       `UPDATE users SET verification_status = COALESCE($2, verification_status),
          is_suspended = COALESCE($3, is_suspended), updated_at = now()

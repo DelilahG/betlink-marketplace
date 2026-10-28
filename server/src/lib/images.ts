@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import multer from 'multer';
+import sharp from 'sharp';
 import { config } from '../config.js';
 import { HttpError } from './http.js';
 
@@ -25,13 +26,32 @@ export function sniffImageType(buf: Buffer): 'jpg' | 'png' | 'webp' | null {
 
 const STORAGE_KEY = /^[0-9a-f]{32}\.(jpg|png|webp)$/;
 
-/** Writes a verified image under a random name. Returns the storage key (the only thing persisted). */
+/**
+ * Decodes and re-encodes the image. This applies the EXIF orientation and then drops all metadata
+ * (EXIF incl. GPS location, XMP, IPTC, comments), discards any bytes appended to the image, caps the
+ * resolution, and rejects anything that does not decode as a real image.
+ */
+export async function sanitizeImage(buf: Buffer, ext: 'jpg' | 'png' | 'webp'): Promise<Buffer> {
+  try {
+    // limitInputPixels guards against decompression bombs (tiny files that expand to huge bitmaps)
+    const img = sharp(buf, { limitInputPixels: 40_000_000, failOn: 'error' })
+      .rotate()
+      .resize({ width: 2560, height: 2560, fit: 'inside', withoutEnlargement: true });
+    const encoded = ext === 'jpg' ? img.jpeg({ quality: 85, mozjpeg: true }) : ext === 'png' ? img.png() : img.webp({ quality: 85 });
+    return await encoded.toBuffer(); // sharp omits metadata unless explicitly asked to keep it
+  } catch {
+    throw new HttpError(400, 'This image could not be processed. Please upload a valid JPEG, PNG or WebP photo.');
+  }
+}
+
+/** Writes a verified, metadata-free image under a random name. Returns the storage key (the only thing persisted). */
 export async function storeImage(buf: Buffer): Promise<string> {
   const ext = sniffImageType(buf);
   if (!ext) throw new HttpError(400, 'Only JPEG, PNG or WebP images are allowed');
+  const clean = await sanitizeImage(buf, ext);
   const key = `${crypto.randomBytes(16).toString('hex')}.${ext}`;
   await fs.mkdir(config.uploadDir, { recursive: true });
-  await fs.writeFile(path.join(config.uploadDir, key), buf, { flag: 'wx' });
+  await fs.writeFile(path.join(config.uploadDir, key), clean, { flag: 'wx' });
   return key;
 }
 

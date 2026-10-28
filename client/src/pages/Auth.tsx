@@ -4,8 +4,12 @@ import { api, ApiError, errorMessage, type User } from '../api';
 import { useAuth } from '../auth';
 import { Alert, Field, Spinner } from '../components/ui';
 
-/** Only allow same-site relative redirects after login (prevents open redirects). */
-const safeNext = (next: string | null) => (next && next.startsWith('/') && !next.startsWith('//') ? next : null);
+/**
+ * Only allow same-site relative redirects after login (prevents open redirects). Browsers treat "\" like "/",
+ * so "/\evil.com" would become "//evil.com"; backslashes and control characters are rejected outright.
+ */
+export const safeNext = (next: string | null) =>
+  next && /^\/(?![/\\])/.test(next) && !/[\\\x00-\x1f\x7f]/.test(next) ? next : null;
 
 function AuthShell({ title, sub, children }: { title: string; sub: ReactNode; children: ReactNode }) {
   return (
