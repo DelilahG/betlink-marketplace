@@ -65,7 +65,10 @@ Copy-Item server\.env.example server\.env
 ```powershell
 npm run db:local
 # Prints: DATABASE_URL=postgres://betlink:betlink_local_dev@localhost:5433/betlink  (paste into server\.env)
+# Leave this window open. Press Ctrl+C here to stop the database.
 ```
+
+On Windows, after Ctrl+C npm or cmd may ask "Terminate batch job (Y/N)?". That prompt comes from Windows, not BetLink; either answer is fine because the database has already been stopped. If you see "Could not start PostgreSQL on port 5433", another `db:local` window is still running.
 
 **Terminal 2, schema, demo data and an admin:**
 ```powershell
@@ -98,8 +101,8 @@ npm run typecheck
 npm run build
 ```
 
-- **Server (56 tests):** these run against a throwaway **real PostgreSQL** that the tests start automatically. They cover registration and login validation, phone normalisation, the CSRF header, profile-based privilege escalation, role checks, listing CRUD and the draft → publish → rented flow, cross-user access (403), upload rejection (spoofed type, more than 5 MB, path-traversal filename), search and filters, sorting and pagination, LIKE wildcard escaping, favourites, the inquiry workflow and honeypot, reporting with auto-flagging, admin moderation, verification and suspension, plus security regressions: EXIF/GPS stripping, polyglot payload removal, undecodable-image rejection, the 72-byte password limit, expired-session cleanup, the proxy-trust default, and admins being non-suspendable.
-- **Client (21 tests):** ETB and phone formatting, listing form validation, PropertyCard rendering (labels, the verified badge only when verified, the favourite toggle), the post-login redirect allow-list (open-redirect cases), and a Layout regression test.
+- **Server (58 tests):** these run against a throwaway **real PostgreSQL** that the tests start automatically. They cover registration and login validation, phone normalisation, the CSRF header, profile-based privilege escalation, role checks, listing CRUD and the draft → publish → rented flow, cross-user access (403), upload rejection (spoofed type, more than 5 MB, path-traversal filename), search and filters, sorting and pagination, LIKE wildcard escaping, favourites, the inquiry workflow and honeypot, reporting with auto-flagging, admin moderation, verification and suspension, plus security regressions: EXIF/GPS stripping, polyglot payload removal, undecodable-image rejection, the 72-byte password limit, expired-session cleanup, the proxy-trust default, admins being non-suspendable, and the `db:local` database check (creates only when missing, keeps existing data, closes its connection).
+- **Client (27 tests):** ETB and phone formatting, listing form validation, PropertyCard rendering (labels, the verified badge only when verified, the favourite toggle), the post-login redirect allow-list (open-redirect cases), role-based redirects after login and registration, and a Layout regression test.
 
 Passing tests show that these specific behaviours work. They are not a full security audit, and this project has not been independently audited or penetration-tested.
 

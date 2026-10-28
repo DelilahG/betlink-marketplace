@@ -129,6 +129,8 @@ em.serif { font-family: var(--serif); font-style: italic; }
 
 /* Hero ------------------------------------------------------------------ */
 .hero { padding: 8px 0 0; }
+/* The shorthand above removes .container's side padding (wide hero on desktop); phones still need the gutter */
+@media (max-width: 640px) { .hero { padding-left: var(--gutter); padding-right: var(--gutter); } }
 .hero-frame { position: relative; border-radius: var(--r-xl); overflow: hidden; min-height: min(78vh, 760px); display: flex; align-items: flex-end; color: #fff; }
 .hero-frame > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scale(1.06); animation: hero-in 1.6s var(--ease) forwards; }
 .hero-frame::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(20, 18, 14, 0.15) 0%, rgba(20, 18, 14, 0.1) 40%, rgba(20, 18, 14, 0.72) 100%); }

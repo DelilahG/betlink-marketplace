@@ -54,7 +54,9 @@ export function Login() {
   const { user } = useAuth();
   const [form, setForm] = useState({ email: '', password: '' });
   const { submit, errors, error, busy, params } = useAuthSubmit('/auth/login');
-  if (user) return <Navigate to={safeNext(params.get('next')) ?? '/'} replace />;
+  // Only for visitors who were already logged in. During a successful submit `busy` stays true: React Router 7
+  // runs navigate() as a transition, so this guard would otherwise win the race and send everyone to "/".
+  if (user && !busy) return <Navigate to={safeNext(params.get('next')) ?? '/'} replace />;
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     submit(form, (u) => (u.role === 'admin' ? '/admin' : ['owner', 'agent'].includes(u.role) ? '/dashboard' : '/'));
@@ -84,7 +86,7 @@ export function Register() {
     full_name: '', email: '', phone: '', password: '',
     role: ROLES.some((r) => r.value === params.get('role')) ? params.get('role')! : 'user',
   });
-  if (user) return <Navigate to="/" replace />;
+  if (user && !busy) return <Navigate to="/" replace />; // see Login: avoid racing the post-submit navigate()
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     submit(form, (u) => (u.role === 'user' ? '/' : '/dashboard/new'));

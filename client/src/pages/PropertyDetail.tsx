@@ -62,6 +62,17 @@ function InquiryForm({ p }: { p: Property }) {
   const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [error, setError] = useState('');
 
+  // On a fresh page load the session check can finish after this form mounts; fill in only empty fields
+  useEffect(() => {
+    if (!user) return;
+    setForm((f) => ({
+      ...f,
+      name: f.name || user.full_name,
+      email: f.email || user.email,
+      phone: f.phone || (user.phone ?? ''),
+    }));
+  }, [user]);
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setState('sending');
