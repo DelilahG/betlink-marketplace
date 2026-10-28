@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+*.local
+server/.pgdata/
+server/uploads/*
+!server/uploads/.gitkeep
+coverage/
+*.log
